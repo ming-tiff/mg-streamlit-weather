@@ -12,7 +12,7 @@ This dashboard shows **daily and annual summaries** of temperature, wind, and pr
 for multiple regions in Malaysia using data from the **Open-Meteo API**.
 """)
 
-# -----------------------------
+#-----------------------
 # 📍 Select Region
 # -----------------------------
 region_coords = {
@@ -26,23 +26,22 @@ region_coords = {
     "Johor": {"lat": 1.492, "lon": 103.741},
     "Sabah": {"lat": 5.978, "lon": 116.075},
     "Sarawak": {"lat": 1.553, "lon": 110.359},
-    "Custom Coordinates": None,  # 🆕 added option
+    "Custom Coordinates": None,
 }
 
-# User selects a region
+# ✅ Correct variable name
 selected_region = st.selectbox("Select a Region:", list(region_coords.keys()))
 
-# Handle custom coordinate input
+# Handle coordinates
 if selected_region == "Custom Coordinates":
     st.markdown("### 🌍 Enter Custom Coordinates")
-    custom_lat = st.number_input("Latitude", value=3.0, format="%.6f")
-    custom_lon = st.number_input("Longitude", value=101.0, format="%.6f")
-    lat, lon = custom_lat, custom_lon
+    lat = st.number_input("Latitude", value=3.0, format="%.6f")
+    lon = st.number_input("Longitude", value=101.0, format="%.6f")
 else:
-    lat, lon = region_coords[selected_region]["lat"], region_coords[selected_region]["lon"]
+    coords = region_coords[selected_region]
+    lat, lon = coords["lat"], coords["lon"]
 
 st.write(f"**Selected Location:** {selected_region} ({lat:.4f}, {lon:.4f})")
-#-----------------------
 
 # -----------------------------
 # 📆 Select Date Range
