@@ -26,9 +26,23 @@ region_coords = {
     "Johor": {"lat": 1.492, "lon": 103.741},
     "Sabah": {"lat": 5.978, "lon": 116.075},
     "Sarawak": {"lat": 1.553, "lon": 110.359},
+    "Custom Coordinates": None,  # 🆕 added option
 }
 
-region = st.selectbox("Select Region:", list(region_coords.keys()))
+# User selects a region
+selected_region = st.selectbox("Select a Region:", list(region_coords.keys()))
+
+# Handle custom coordinate input
+if selected_region == "Custom Coordinates":
+    st.markdown("### 🌍 Enter Custom Coordinates")
+    custom_lat = st.number_input("Latitude", value=3.0, format="%.6f")
+    custom_lon = st.number_input("Longitude", value=101.0, format="%.6f")
+    lat, lon = custom_lat, custom_lon
+else:
+    lat, lon = region_coords[selected_region]["lat"], region_coords[selected_region]["lon"]
+
+st.write(f"**Selected Location:** {selected_region} ({lat:.4f}, {lon:.4f})")
+#-----------------------
 
 # -----------------------------
 # 📆 Select Date Range
