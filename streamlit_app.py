@@ -1,105 +1,61 @@
-# -*- coding: utf-8 -*-
 import streamlit as st
-import pandas as pd
 import requests
-import altair as alt
+import pandas as pd
+import plotly.express as px
+from datetime import datetime
 
-st.set_page_config(
-    page_title="Terengganu Weather Dashboard",
-    page_icon="🌦️",
-    layout="wide",
-)
+# --- App Title ---
+st.set_page_config(page_title="Terengganu Weather Dashboard", page_icon="🌤️", layout="wide")
+st.title("🌤️ Terengganu Live Weather Dashboard")
 
-"""
-# 🌤️ Terengganu Weather Dashboard
+# --- Coordinates for Terengganu (near Kuala Terengganu) ---
+LAT, LON = 5.3302, 103.1408
 
-Explore daily temperature, rainfall, and wind for Terengganu, Malaysia.
-"""
+# --- Sidebar ---
+st.sidebar.header("Weather Settings")
+forecast_days = st.sidebar.slider("Forecast Days", 1, 7, 3)
+st.sidebar.markdown("Data Source: [Open-Meteo API](https://open-meteo.com/)")
 
-@st.cache_data
-def get_weather_data():
+# --- Fetch Data ---
+@st.cache_data(ttl=3600)
+def get_weather_data(lat, lon, days):
     url = (
-        "https://api.open-meteo.com/v1/forecast?"
-        "latitude=5.33&longitude=103.14&"
-        "daily=temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max&"
-        "timezone=Asia/Kuala_Lumpur&past_days=365"
+        f"https://api.open-meteo.com/v1/forecast?"
+        f"latitude={lat}&longitude={lon}&timezone=Asia/Kuala_Lumpur"
+        f"&daily=temperature_2m_max,temperature_2m_min,precipitation_sum"
+        f"&forecast_days={days}"
     )
-    r = requests.get(url)
-    data = r.json()
+    response = requests.get(url)
+    data = response.json()
+    return data
 
-    # Debug (uncomment to inspect)
-    # st.json(data)
-
-    if "daily" not in data:
-        raise ValueError("No 'daily' field in response. Check API or parameters.")
-
+try:
+    data = get_weather_data(LAT, LON, forecast_days)
     df = pd.DataFrame({
-        "date": pd.to_datetime(data["daily"]["time"]),
-        "temp_max": data["daily"]["temperature_2m_max"],
-        "temp_min": data["daily"]["temperature_2m_min"],
-        "precipitation": data["daily"]["precipitation_sum"],
-        "wind": data["daily"]["wind_speed_10m_max"],
+        "Date": data["daily"]["time"],
+        "Max Temp (°C)": data["daily"]["temperature_2m_max"],
+        "Min Temp (°C)": data["daily"]["temperature_2m_min"],
+        "Precipitation (mm)": data["daily"]["precipitation_sum"]
     })
-    return df
 
-df = get_weather_data()
+    # --- Current Weather Display ---
+    today = df.iloc[0]
+    st.metric("📅 Today", today["Date"])
+    st.metric("🌡️ Max Temp (°C)", today["Max Temp (°C)"])
+    st.metric("🌧️ Precipitation (mm)", today["Precipitation (mm)"])
 
-# --- Summary stats ---
-st.subheader("Summary (past 12 months)")
+    # --- Charts ---
+    st.subheader("📈 7-Day Temperature & Rainfall Forecast")
+    fig = px.line(df, x="Date", y=["Max Temp (°C)", "Min Temp (°C)"], markers=True)
+    st.plotly_chart(fig, use_container_width=True)
 
-col1, col2, col3 = st.columns(3)
-col1.metric("🌡️ Max Temperature", f"{df['temp_max'].max():.1f} °C")
-col2.metric("❄️ Min Temperature", f"{df['temp_min'].min():.1f} °C")
-col3.metric("🌧️ Total Rainfall", f"{df['precipitation'].sum():.1f} mm")
+    fig2 = px.bar(df, x="Date", y="Precipitation (mm)", color="Precipitation (mm)",
+                  title="Daily Rainfall Forecast (mm)")
+    st.plotly_chart(fig2, use_container_width=True)
 
-col1, col2 = st.columns(2)
-col1.metric("💨 Highest Wind Speed", f"{df['wind'].max():.1f} m/s")
-col2.metric("🍃 Average Wind Speed", f"{df['wind'].mean():.1f} m/s")
+    # --- Table ---
+    st.subheader("📋 Weather Data Table")
+    st.dataframe(df, use_container_width=True)
 
-st.divider()
-
-# --- Charts ---
-st.subheader("Temperature Trends")
-
-temp_chart = (
-    alt.Chart(df)
-    .mark_area(opacity=0.5)
-    .encode(
-        x="date:T",
-        y=alt.Y("temp_max:Q", title="Temperature (°C)"),
-        y2="temp_min:Q",
-        tooltip=["date:T", "temp_max", "temp_min"],
-    )
-    .properties(height=300)
-)
-st.altair_chart(temp_chart, use_container_width=True)
-
-st.subheader("Rainfall and Wind Overview")
-
-rain_chart = (
-    alt.Chart(df)
-    .mark_bar()
-    .encode(
-        x="date:T",
-        y=alt.Y("precipitation:Q", title="Rainfall (mm)"),
-        tooltip=["date:T", "precipitation"],
-    )
-    .properties(height=200)
-)
-
-wind_chart = (
-    alt.Chart(df)
-    .mark_line(color="orange")
-    .encode(
-        x="date:T",
-        y=alt.Y("wind:Q", title="Wind Speed (m/s)"),
-        tooltip=["date:T", "wind"],
-    )
-    .properties(height=200)
-)
-
-st.altair_chart(rain_chart, use_container_width=True)
-st.altair_chart(wind_chart, use_container_width=True)
-
-st.subheader("Raw Data")
-st.dataframe(df)
+except Exception as e:
+    st.error(f"Failed to load weather data: {e}")
