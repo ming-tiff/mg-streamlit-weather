@@ -3,7 +3,6 @@ import streamlit as st
 import pandas as pd
 import requests
 import altair as alt
-from datetime import datetime
 
 st.set_page_config(
     page_title="Terengganu Weather Dashboard",
@@ -17,17 +16,22 @@ st.set_page_config(
 Explore daily temperature, rainfall, and wind for Terengganu, Malaysia.
 """
 
-# --- Get weather data from Open-Meteo API ---
 @st.cache_data
 def get_weather_data():
     url = (
         "https://api.open-meteo.com/v1/forecast?"
         "latitude=5.33&longitude=103.14&"
         "daily=temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max&"
-        "timezone=Asia/Kuala_Lumpur&start_date=2024-01-01&end_date=2024-12-31"
+        "timezone=Asia/Kuala_Lumpur&past_days=365"
     )
     r = requests.get(url)
     data = r.json()
+
+    # Debug (uncomment to inspect)
+    # st.json(data)
+
+    if "daily" not in data:
+        raise ValueError("No 'daily' field in response. Check API or parameters.")
 
     df = pd.DataFrame({
         "date": pd.to_datetime(data["daily"]["time"]),
@@ -40,19 +44,19 @@ def get_weather_data():
 
 df = get_weather_data()
 
-# --- Summary statistics ---
-st.subheader("2024 Summary")
+# --- Summary stats ---
+st.subheader("Summary (past 12 months)")
 
 col1, col2, col3 = st.columns(3)
-col1.metric("Max Temperature", f"{df['temp_max'].max():.1f} °C")
-col2.metric("Min Temperature", f"{df['temp_min'].min():.1f} °C")
-col3.metric("Total Rainfall", f"{df['precipitation'].sum():.1f} mm")
+col1.metric("🌡️ Max Temperature", f"{df['temp_max'].max():.1f} °C")
+col2.metric("❄️ Min Temperature", f"{df['temp_min'].min():.1f} °C")
+col3.metric("🌧️ Total Rainfall", f"{df['precipitation'].sum():.1f} mm")
 
 col1, col2 = st.columns(2)
-col1.metric("Highest Wind Speed", f"{df['wind'].max():.1f} m/s")
-col2.metric("Average Wind Speed", f"{df['wind'].mean():.1f} m/s")
+col1.metric("💨 Highest Wind Speed", f"{df['wind'].max():.1f} m/s")
+col2.metric("🍃 Average Wind Speed", f"{df['wind'].mean():.1f} m/s")
 
-st.markdown("---")
+st.divider()
 
 # --- Charts ---
 st.subheader("Temperature Trends")
