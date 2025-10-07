@@ -19,6 +19,7 @@ for multiple regions in Malaysia using data from the **Open-Meteo (ERA5) archive
 # 📍 Sidebar Controls
 # -----------------------------
 st.sidebar.header("🌏 Location & Settings")
+st.sidebar.markdown("Data Source: [Open-Meteo API](https://open-meteo.com/)")
 
 region_coords = {
     "Terengganu": {"lat": 5.329, "lon": 103.136},
