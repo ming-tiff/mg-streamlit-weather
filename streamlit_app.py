@@ -14,19 +14,30 @@ st.sidebar.markdown("Data Source: [Open-Meteo API](https://open-meteo.com/)")
 # -----------------------------
 st.sidebar.header("⚙️ Configuration")
 
-# Year range
-current_year = datetime.now().year
-years = st.sidebar.slider("Select Year Range", 2014, current_year, (2014, current_year))
-start_date = f"{years[0]}-01-01"
-end_date = f"{years[1]}-12-31"
+# -----------------------------
+# 📅 Year & Date Range Selection (combined)
+# -----------------------------
+from datetime import datetime
 
-region_option = st.sidebar.selectbox(
-    "Select Region",
-    ["Selangor", "Kuala Lumpur", "Kelantan", "Terengganu", "Perlis", "Kedah", "Perak", "Johor", "Sabah", "Sarawak", "Custom (points or shapefile)"],
+current_year = datetime.now().year
+
+st.sidebar.subheader("📅 Date Range Selection")
+
+# Step 1: Select year range (auto-updates start & end date)
+years = st.sidebar.slider(
+    "Select Year Range",
+    2014,
+    current_year,
+    (2014, current_year),
+    help="Adjust the range of years to analyze weather data"
 )
 
-start_date = st.sidebar.date_input("Start Date", datetime(2016, 1, 1))
-end_date = st.sidebar.date_input("End Date", datetime(2025, 1, 1))
+# Step 2: Fine-tune exact dates if needed
+default_start = datetime(years[0], 1, 1)
+default_end = datetime(years[1], 12, 31)
+
+start_date = st.sidebar.date_input("Start Date", default_start)
+end_date = st.sidebar.date_input("End Date", default_end)
 
 st.sidebar.markdown("---")
 
