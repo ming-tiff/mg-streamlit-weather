@@ -14,6 +14,12 @@ st.sidebar.markdown("Data Source: [Open-Meteo API](https://open-meteo.com/)")
 # -----------------------------
 st.sidebar.header("⚙️ Configuration")
 
+# Year range
+current_year = datetime.now().year
+years = st.sidebar.slider("Select Year Range", 2014, current_year, (2014, current_year))
+start_date = f"{years[0]}-01-01"
+end_date = f"{years[1]}-12-31"
+
 region_option = st.sidebar.selectbox(
     "Select Region",
     ["Selangor", "Kuala Lumpur", "Kelantan", "Terengganu", "Perlis", "Kedah", "Perak", "Johor", "Sabah", "Sarawak", "Custom (points or shapefile)"],
