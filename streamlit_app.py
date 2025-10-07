@@ -18,7 +18,7 @@ st.title("🌤️ Malaysia Regional Weather Dashboard")
 st.markdown("""
 This dashboard displays **temperature**, **wind**, and **precipitation** data 
 across selected regions in Malaysia. You can compare multiple regions, 
-analyze daily trends, and download the combined dataset.
+analyze daily trends, and visualize wind directions using a wind rose chart.
 """)
 
 st.markdown("---")
@@ -42,15 +42,11 @@ locations = {
     "Sarawak": (1.553, 110.359)
 }
 
-selected_locations = st.sidebar.multiselect(
-    "Select Region(s)",
-    options=list(locations.keys()),
-    default=["Kuala Lumpur"]
-)
+selected_location = st.sidebar.selectbox("Select Region", list(locations.keys()), index=3)
 
 # --- Date range control ---
 current_year = datetime.now().year
-years = st.sidebar.slider("Select Year Range", 2014, current_year, (2014, current_year))
+years = st.sidebar.slider("Select Year Range", 2014, current_year, (2020, current_year))
 default_start = datetime(years[0], 1, 1)
 default_end = datetime(years[1], 12, 31)
 
@@ -78,63 +74,76 @@ def get_weather_data(lat, lon, start_date, end_date):
     return df
 
 # -----------------------------------
-# Combine data for all selected regions
+# Fetch Data
 # -----------------------------------
-all_data = []
-
-for loc in selected_locations:
-    lat, lon = locations[loc]
-    df = get_weather_data(lat, lon, start_date, end_date)
-    df["region"] = loc
-    all_data.append(df)
-
-full_df = pd.concat(all_data, ignore_index=True)
+lat, lon = locations[selected_location]
+df = get_weather_data(lat, lon, start_date, end_date)
 
 # -----------------------------------
 # Download Button
 # -----------------------------------
 csv_buffer = io.StringIO()
-full_df.to_csv(csv_buffer, index=False)
+df.to_csv(csv_buffer, index=False)
 st.sidebar.download_button(
     label="📥 Download Weather Data (CSV)",
     data=csv_buffer.getvalue(),
-    file_name="malaysia_weather_data.csv",
+    file_name=f"{selected_location.lower()}_weather_data.csv",
     mime="text/csv"
 )
-
-st.sidebar.markdown("---")
 
 # -----------------------------------
 # Charts Section
 # -----------------------------------
-st.subheader("📊 Weather Trends")
+st.subheader(f"📊 Daily Weather Trends — {selected_location}")
 
-# --- Layout: 3 columns for Temperature, Wind Speed, and Precipitation ---
 col1, col2, col3 = st.columns(3)
 
 # 🌡️ Temperature Chart
 with col1:
     st.markdown("### 🌡️ Temperature (°C)")
+    temp_df = pd.melt(
+        df,
+        id_vars="date",
+        value_vars=["temperature_2m_min", "temp_mean_calc", "temperature_2m_max"],
+        var_name="Type",
+        value_name="Temperature (°C)"
+    )
+    temp_df["Type"] = temp_df["Type"].replace({
+        "temperature_2m_min": "Min",
+        "temp_mean_calc": "Mean",
+        "temperature_2m_max": "Max"
+    })
     fig_temp = px.line(
-        full_df,
+        temp_df,
         x="date",
-        y=["temperature_2m_min", "temp_mean_calc", "temperature_2m_max"],
-        color="region",
-        labels={"value": "Temperature (°C)", "date": "Date"},
-        title="Daily Min / Mean / Max Temperature"
+        y="Temperature (°C)",
+        color="Type",
+        color_discrete_sequence=["#ffb3b3", "#ff6666", "#cc0000"],
+        title="Daily Temperature — Min / Mean / Max"
     )
     st.plotly_chart(fig_temp, use_container_width=True)
 
 # 🌬️ Wind Speed Chart
 with col2:
     st.markdown("### 🌬️ Wind Speed (m/s)")
+    wind_df = pd.melt(
+        df,
+        id_vars="date",
+        value_vars=["wind_speed_10m_mean", "wind_speed_10m_max"],
+        var_name="Type",
+        value_name="Wind Speed (m/s)"
+    )
+    wind_df["Type"] = wind_df["Type"].replace({
+        "wind_speed_10m_mean": "Mean",
+        "wind_speed_10m_max": "Max"
+    })
     fig_wind = px.line(
-        full_df,
+        wind_df,
         x="date",
-        y=["wind_speed_10m_mean", "wind_speed_10m_max"],
-        color="region",
-        labels={"value": "Wind Speed (m/s)", "date": "Date"},
-        title="Daily Mean / Max Wind Speed"
+        y="Wind Speed (m/s)",
+        color="Type",
+        color_discrete_sequence=["#6baed6", "#2171b5"],
+        title="Daily Wind Speed — Mean / Max"
     )
     st.plotly_chart(fig_wind, use_container_width=True)
 
@@ -142,52 +151,47 @@ with col2:
 with col3:
     st.markdown("### 🌧️ Precipitation (mm)")
     fig_prep = px.line(
-        full_df,
+        df,
         x="date",
         y="precipitation_sum",
-        color="region",
         labels={"precipitation_sum": "Precipitation (mm)", "date": "Date"},
-        title="Daily Precipitation Sum"
+        title="Daily Precipitation Sum",
+        color_discrete_sequence=["#6a51a3"]
     )
     st.plotly_chart(fig_prep, use_container_width=True)
 
 st.markdown("---")
 
 # -----------------------------------
-# Wind Rose Visualization (Average Direction)
+# 🌀 Wind Rose Chart
 # -----------------------------------
-st.subheader("🌀 Wind Direction Rose")
+st.subheader(f"🌀 Wind Direction Rose — {selected_location}")
 
-for loc in selected_locations:
-    df_region = full_df[full_df["region"] == loc]
-    wind_dir = df_region["wind_direction_10m_dominant"]
-    wind_speed = df_region["wind_speed_10m_mean"]
+fig_rose = go.Figure()
 
-    # Create Wind Rose using Plotly Polar
-    fig_rose = go.Figure()
+fig_rose.add_trace(go.Barpolar(
+    r=df["wind_speed_10m_mean"],
+    theta=df["wind_direction_10m_dominant"],
+    name="Wind Intensity",
+    marker=dict(
+        color=df["wind_speed_10m_mean"],
+        colorscale="YlOrRd",  # Yellow → Red
+        line=dict(color="white", width=1)
+    ),
+    opacity=0.85
+))
 
-    fig_rose.add_trace(go.Barpolar(
-        r=wind_speed,
-        theta=wind_dir,
-        name=loc,
-        marker=dict(
-            color=wind_speed,
-            colorscale="Viridis",
-            line=dict(color="white", width=1)
-        ),
-        opacity=0.8
-    ))
+fig_rose.update_layout(
+    title=f"Wind Rose — {selected_location}",
+    polar=dict(
+        radialaxis=dict(showticklabels=True, ticks=''),
+        angularaxis=dict(direction="clockwise")
+    ),
+    showlegend=True,
+    legend=dict(title="Intensity (m/s)", orientation="h", x=0.3, y=-0.2),
+    margin=dict(l=20, r=20, t=50, b=20)
+)
 
-    fig_rose.update_layout(
-        title=f"🌬️ Wind Rose — {loc}",
-        polar=dict(
-            radialaxis=dict(showticklabels=True, ticks=''),
-            angularaxis=dict(direction="clockwise")
-        ),
-        showlegend=False,
-        margin=dict(l=20, r=20, t=50, b=20)
-    )
+st.plotly_chart(fig_rose, use_container_width=True)
 
-    st.plotly_chart(fig_rose, use_container_width=True)
-
-st.markdown("✅ **Tip:** Use the wind rose to visualize prevailing wind directions by region.")
+st.markdown("✅ **Tip:** The wind rose uses a yellow→red scale where darker red indicates higher wind intensity.")
