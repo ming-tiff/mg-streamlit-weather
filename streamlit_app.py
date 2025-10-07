@@ -9,21 +9,37 @@ from shapely.geometry import Point
 st.set_page_config(page_title="🌦️ Malaysia Regional Weather Dashboard", layout="wide")
 st.sidebar.markdown("Data Source: [Open-Meteo API](https://open-meteo.com/)")
 
-# -----------------------------
+# -----------------------------------------------------
 # Sidebar Configuration
-# -----------------------------
+# -----------------------------------------------------
 st.sidebar.header("⚙️ Configuration")
+
+# -----------------------------
+# 📍 Region or Custom Input
+# -----------------------------
+region_option = st.sidebar.selectbox(
+    "Select Region or Input Type",
+    [
+        "Selangor",
+        "Kuala Lumpur",
+        "Kelantan",
+        "Terengganu",
+        "Perlis",
+        "Kedah",
+        "Perak",
+        "Johor",
+        "Sabah",
+        "Sarawak",
+        "Custom (points or shapefile)"
+    ],
+)
 
 # -----------------------------
 # 📅 Year & Date Range Selection (combined)
 # -----------------------------
-from datetime import datetime
-
 current_year = datetime.now().year
-
 st.sidebar.subheader("📅 Date Range Selection")
 
-# Step 1: Select year range (auto-updates start & end date)
 years = st.sidebar.slider(
     "Select Year Range",
     2014,
@@ -32,35 +48,31 @@ years = st.sidebar.slider(
     help="Adjust the range of years to analyze weather data"
 )
 
-# Step 2: Fine-tune exact dates if needed
 default_start = datetime(years[0], 1, 1)
 default_end = datetime(years[1], 12, 31)
-
 start_date = st.sidebar.date_input("Start Date", default_start)
 end_date = st.sidebar.date_input("End Date", default_end)
-
 st.sidebar.markdown("---")
 
 # -----------------------------
-# Multiple Custom Coordinates or Shapefile
+# 🗺️ Multiple Coordinates or Shapefile
 # -----------------------------
 coords = []
 
 if region_option == "Custom (points or shapefile)":
     st.sidebar.subheader("🗺️ Custom Input Options")
 
-    option = st.sidebar.radio("Choose input type", ["Manual Coordinates", "Upload Shapefile (.zip)"])
+    option = st.sidebar.radio("Choose Input Type", ["Manual Coordinates", "Upload Shapefile (.zip)"])
 
     if option == "Manual Coordinates":
-        st.sidebar.markdown("Enter multiple coordinates (Lat, Lon):")
-        n_points = st.sidebar.number_input("Number of points", min_value=1, max_value=10, value=2)
+        n_points = st.sidebar.number_input("Number of Points", min_value=1, max_value=10, value=2)
         for i in range(n_points):
-            lat = st.sidebar.number_input(f"Latitude #{i+1}", key=f"lat_{i}")
-            lon = st.sidebar.number_input(f"Longitude #{i+1}", key=f"lon_{i}")
+            lat = st.sidebar.number_input(f"Latitude #{i+1}", key=f"lat_{i}", format="%.6f")
+            lon = st.sidebar.number_input(f"Longitude #{i+1}", key=f"lon_{i}", format="%.6f")
             coords.append((lat, lon))
 
     elif option == "Upload Shapefile (.zip)":
-        uploaded_file = st.sidebar.file_uploader("Upload shapefile (.zip)", type=["zip"])
+        uploaded_file = st.sidebar.file_uploader("Upload Shapefile (.zip)", type=["zip"])
         if uploaded_file is not None:
             import tempfile, zipfile, os
             with tempfile.TemporaryDirectory() as tmpdir:
@@ -78,12 +90,10 @@ if region_option == "Custom (points or shapefile)":
                     gdf["centroid"] = gdf.geometry.centroid
                     for geom in gdf["centroid"]:
                         coords.append((geom.y, geom.x))
-                    st.sidebar.success(f"Loaded {len(coords)} points from shapefile ✅")
+                    st.sidebar.success(f"✅ Loaded {len(coords)} points from shapefile.")
                 else:
-                    st.sidebar.error("No .shp file found inside ZIP!")
-
+                    st.sidebar.error("❌ No .shp file found inside ZIP!")
 else:
-    # Predefined regional coordinates
     region_coords = {
         "Selangor": (3.0738, 101.5183),
         "Kuala Lumpur": (3.139, 101.6869),
@@ -99,27 +109,29 @@ else:
     coords = [region_coords[region_option]]
 
 # -----------------------------
-# Function to fetch data
+# 🌤️ Fetch Weather Data
 # -----------------------------
 @st.cache_data
 def get_weather_data(lat, lon, location_name):
     url = (
         f"https://archive-api.open-meteo.com/v1/era5?"
         f"latitude={lat}&longitude={lon}&start_date={start_date}&end_date={end_date}"
-        f"&daily=temperature_2m_min,temperature_2m_max,precipitation_sum,windspeed_10m_min,windspeed_10m_max"
-        f"&timezone=auto"
+        f"&daily=temperature_2m_min,temperature_2m_max,precipitation_sum,wind_speed_10m_min,wind_speed_10m_max"
+        f"&timezone=Asia%2FKuala_Lumpur"
     )
     r = requests.get(url)
     if r.status_code != 200:
         return None
     data = r.json()
+    if "daily" not in data:
+        return None
     df = pd.DataFrame({
         "date": data["daily"]["time"],
         "temp_min": data["daily"]["temperature_2m_min"],
         "temp_max": data["daily"]["temperature_2m_max"],
         "precipitation": data["daily"]["precipitation_sum"],
-        "wind_min": data["daily"]["windspeed_10m_min"],
-        "wind_max": data["daily"]["windspeed_10m_max"],
+        "wind_min": data["daily"]["wind_speed_10m_min"],
+        "wind_max": data["daily"]["wind_speed_10m_max"],
     })
     df["date"] = pd.to_datetime(df["date"])
     df["location"] = location_name
@@ -128,10 +140,9 @@ def get_weather_data(lat, lon, location_name):
     return df
 
 # -----------------------------
-# Combine data from multiple points
+# Combine Data from Multiple Points
 # -----------------------------
 full_df = pd.DataFrame()
-
 for i, (lat, lon) in enumerate(coords):
     loc_name = f"Custom-{i+1}" if region_option == "Custom (points or shapefile)" else region_option
     df_part = get_weather_data(lat, lon, loc_name)
@@ -139,16 +150,16 @@ for i, (lat, lon) in enumerate(coords):
         full_df = pd.concat([full_df, df_part])
 
 if full_df.empty:
-    st.error("⚠️ No data loaded. Please check your coordinates or date range.")
+    st.error("⚠️ No data loaded. Please check coordinates or date range.")
     st.stop()
 
 # -----------------------------
 # Display Summary
 # -----------------------------
-st.success(f"Loaded {len(full_df)} days of weather data for {len(coords)} location(s).")
+st.success(f"✅ Loaded {len(full_df)} days of weather data for {len(coords)} location(s).")
 
 # -----------------------------
-# Side-by-side plots
+# Side-by-Side Plots
 # -----------------------------
 st.subheader("📈 Daily Weather Trends")
 
@@ -160,7 +171,7 @@ with col1:
         x="date",
         y="precipitation",
         color="location",
-        title="Precipitation (mm)",
+        title="🌧️ Precipitation (mm)",
         labels={"date": "Date", "precipitation": "mm"},
     )
     st.plotly_chart(fig1, use_container_width=True)
@@ -171,7 +182,7 @@ with col2:
         x="date",
         y=["wind_min", "wind_median", "wind_max"],
         color_discrete_sequence=["#6baed6", "#2171b5", "#08306b"],
-        title="Wind Speed (m/s)",
+        title="🌬️ Wind Speed (m/s)",
         labels={"value": "Wind (m/s)", "variable": "Type"},
     )
     st.plotly_chart(fig2, use_container_width=True)
@@ -182,7 +193,7 @@ with col3:
         x="date",
         y=["temp_min", "temp_median", "temp_max"],
         color_discrete_sequence=["#ffb3b3", "#ff6666", "#cc0000"],
-        title="Temperature (°C)",
+        title="🌡️ Temperature (°C)",
         labels={"value": "Temperature (°C)", "variable": "Type"},
     )
     st.plotly_chart(fig3, use_container_width=True)
