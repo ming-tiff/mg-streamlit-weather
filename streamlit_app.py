@@ -4,8 +4,8 @@ import plotly.express as px
 from datetime import datetime
 import requests
 import io
-from plotly.subplots import make_subplots
-from plotly import graph_objects as go
+import geopandas as gpd
+import tempfile, zipfile, os
 import numpy as np
 
 # --------------------------------------------
@@ -24,17 +24,21 @@ for multiple regions in Malaysia using the **Open-Meteo API**.
 # Sidebar — Controls
 # --------------------------------------------
 st.sidebar.header("⚙️ Configuration")
-
 st.sidebar.markdown("---")
 
 # -----------------------------
-# 🗺️ Multiple Coordinates or Shapefile
+# 🗺️ Region Selection
 # -----------------------------
+region_option = st.sidebar.selectbox(
+    "Select Region Type",
+    ["Predefined Regions", "Custom (points or shapefile)"]
+)
+
 coords = []
+selected_regions = []
 
 if region_option == "Custom (points or shapefile)":
     st.sidebar.subheader("🗺️ Custom Input Options")
-
     option = st.sidebar.radio("Choose Input Type", ["Manual Coordinates", "Upload Shapefile (.zip)"])
 
     if option == "Manual Coordinates":
@@ -43,16 +47,15 @@ if region_option == "Custom (points or shapefile)":
             lat = st.sidebar.number_input(f"Latitude #{i+1}", key=f"lat_{i}", format="%.6f")
             lon = st.sidebar.number_input(f"Longitude #{i+1}", key=f"lon_{i}", format="%.6f")
             coords.append((lat, lon))
+        selected_regions = [f"Point #{i+1}" for i in range(len(coords))]
 
     elif option == "Upload Shapefile (.zip)":
         uploaded_file = st.sidebar.file_uploader("Upload Shapefile (.zip)", type=["zip"])
         if uploaded_file is not None:
-            import tempfile, zipfile, os
             with tempfile.TemporaryDirectory() as tmpdir:
                 zip_path = os.path.join(tmpdir, "uploaded.zip")
                 with open(zip_path, "wb") as f:
                     f.write(uploaded_file.getvalue())
-
                 with zipfile.ZipFile(zip_path, "r") as zip_ref:
                     zip_ref.extractall(tmpdir)
 
@@ -63,9 +66,11 @@ if region_option == "Custom (points or shapefile)":
                     gdf["centroid"] = gdf.geometry.centroid
                     for geom in gdf["centroid"]:
                         coords.append((geom.y, geom.x))
+                    selected_regions = [f"ShapePoint #{i+1}" for i in range(len(coords))]
                     st.sidebar.success(f"✅ Loaded {len(coords)} points from shapefile.")
                 else:
                     st.sidebar.error("❌ No .shp file found inside ZIP!")
+
 else:
     region_coords = {
         "Selangor": (3.0738, 101.5183),
@@ -79,14 +84,20 @@ else:
         "Sabah": (5.9788, 116.0753),
         "Sarawak": (1.553, 110.359),
     }
-    coords = [region_coords[region_option]]
-# Year range selector
+
+    selected_regions = st.sidebar.multiselect(
+        "Select Regions", options=list(region_coords.keys()), default=["Selangor", "Kuala Lumpur"]
+    )
+    coords = [region_coords[r] for r in selected_regions]
+
+# --------------------------------------------
+# Date & Frequency Controls
+# --------------------------------------------
 current_year = datetime.now().year
 years = st.sidebar.slider("Select Year Range", 2014, current_year, (2020, current_year))
 start_date = f"{years[0]}-01-01"
 end_date = f"{years[1]}-12-31"
 
-# Download frequency
 download_freq = st.sidebar.selectbox("Download Data Frequency", ["Daily", "Weekly", "Monthly", "Yearly"])
 
 # --------------------------------------------
@@ -116,13 +127,14 @@ def get_weather_data(lat, lon, start_date, end_date, region_name):
 # Load data for all regions
 # --------------------------------------------
 all_data = []
-for region in selected_regions:
-    lat, lon = regions[region]
+for i, region in enumerate(selected_regions):
+    lat, lon = coords[i]
     df = get_weather_data(lat, lon, start_date, end_date, region)
     if df is not None:
         all_data.append(df)
 
 if not all_data:
+    st.warning("⚠️ No data loaded. Please select at least one region or upload a shapefile.")
     st.stop()
 
 full_df = pd.concat(all_data)
@@ -133,12 +145,7 @@ full_df = pd.concat(all_data)
 def aggregate_data(df, freq):
     df = df.copy()
     df.set_index("date", inplace=True)
-    resample_map = {
-        "Daily": "D",
-        "Weekly": "W",
-        "Monthly": "M",
-        "Yearly": "Y"
-    }
+    resample_map = {"Daily": "D", "Weekly": "W", "Monthly": "M", "Yearly": "Y"}
     freq_code = resample_map.get(freq, "D")
 
     agg_df = df.resample(freq_code).agg({
@@ -181,20 +188,9 @@ with col1:
         full_df,
         x="date",
         y=["temperature_2m_min", "temperature_2m_mean", "temperature_2m_max"],
-        labels={"value": "Temperature (°C)", "date": "Date"},
+        color_discrete_sequence=["#1f77b4", "#ff0000", "#d62728"],
+        labels={"value": "Temperature (°C)", "date": "Date", "variable": "Type"}
     )
-    fig_temp.update_traces(line=dict(width=1.5))
-    fig_temp.update_layout(
-        showlegend=True,
-        legend_title_text="Type",
-        legend=dict(orientation="h", y=-0.25, x=0),
-        margin=dict(l=0, r=0, t=40, b=0)
-    )
-    fig_temp.for_each_trace(lambda t: t.update(line_color={
-        "temperature_2m_min": "#1f77b4",
-        "temperature_2m_mean": "#ff0000",
-        "temperature_2m_max": "#d62728"
-    }[t.name]))
     st.plotly_chart(fig_temp, use_container_width=True)
 
 # --------------------------------------------
@@ -206,12 +202,8 @@ with col2:
         full_df,
         x="date",
         y=["wind_speed_10m_mean", "wind_speed_10m_max"],
-        labels={"value": "Wind Speed (m/s)", "date": "Date"},
-    )
-    fig_wind.update_layout(
-        showlegend=True,
-        legend_title_text="Type",
-        legend=dict(orientation="h", y=-0.25, x=0)
+        color_discrete_sequence=["#17becf", "#ff7f0e"],
+        labels={"value": "Wind Speed (m/s)", "date": "Date", "variable": "Type"}
     )
     st.plotly_chart(fig_wind, use_container_width=True)
 
@@ -244,7 +236,7 @@ with col3:
         full_df,
         x="date",
         y="precipitation_sum",
+        color_discrete_sequence=["#1f77b4"],
         labels={"precipitation_sum": "Precipitation (mm)", "date": "Date"}
     )
-    fig_prep.update_traces(line_color="#1f77b4", line_width=1.5)
     st.plotly_chart(fig_prep, use_container_width=True)
