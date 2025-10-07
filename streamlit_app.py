@@ -7,6 +7,8 @@ from datetime import datetime
 import requests
 from math import ceil
 import io
+import geopandas as gpd
+import tempfile, zipfile, os
 
 # --------------------------------------------
 # Page Setup
@@ -18,6 +20,8 @@ st.markdown("""
 This dashboard shows **daily, weekly, monthly, and yearly** summaries of 
 **temperature (°C)**, **wind speed (m/s)**, **wind direction**, and **precipitation (mm)** 
 for multiple regions in Malaysia using the **Open-Meteo ERA5 API**.
+
+You can select from predefined Malaysian regions, manually enter coordinates, or upload a **Shapefile (.zip)** containing polygon(s).
 """)
 
 # --------------------------------------------
@@ -25,6 +29,7 @@ for multiple regions in Malaysia using the **Open-Meteo ERA5 API**.
 # --------------------------------------------
 st.sidebar.header("⚙️ Configuration")
 
+# Built-in region coordinates
 region_coords = {
     "Selangor": (3.0738, 101.5183),
     "Kuala Lumpur": (3.1390, 101.6869),
@@ -38,7 +43,56 @@ region_coords = {
     "Sarawak": (1.5533, 110.3592),
 }
 
-regions = st.sidebar.multiselect("Select Region(s)", list(region_coords.keys()), default=["Kuala Lumpur"])
+# -----------------------------
+# Region selection options
+# -----------------------------
+region_option = st.sidebar.radio(
+    "Select Input Type",
+    ["Predefined Regions", "Manual Coordinates", "Upload Shapefile (.zip)"]
+)
+
+coords = {}
+
+if region_option == "Predefined Regions":
+    selected_regions = st.sidebar.multiselect(
+        "Select Region(s)",
+        list(region_coords.keys()),
+        default=["Kuala Lumpur"]
+    )
+    for region in selected_regions:
+        coords[region] = region_coords[region]
+
+elif region_option == "Manual Coordinates":
+    n_points = st.sidebar.number_input("Number of Points", min_value=1, max_value=10, value=1)
+    for i in range(n_points):
+        lat = st.sidebar.number_input(f"Latitude #{i+1}", key=f"lat_{i}", format="%.6f")
+        lon = st.sidebar.number_input(f"Longitude #{i+1}", key=f"lon_{i}", format="%.6f")
+        if lat != 0 and lon != 0:
+            coords[f"Custom_{i+1}"] = (lat, lon)
+
+elif region_option == "Upload Shapefile (.zip)":
+    uploaded_file = st.sidebar.file_uploader("Upload Shapefile (.zip)", type=["zip"])
+    if uploaded_file:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            zip_path = os.path.join(tmpdir, "uploaded.zip")
+            with open(zip_path, "wb") as f:
+                f.write(uploaded_file.getvalue())
+            with zipfile.ZipFile(zip_path, "r") as zip_ref:
+                zip_ref.extractall(tmpdir)
+            shp_files = [os.path.join(tmpdir, f) for f in os.listdir(tmpdir) if f.endswith(".shp")]
+            if shp_files:
+                gdf = gpd.read_file(shp_files[0])
+                gdf = gdf.to_crs(epsg=4326)
+                gdf["centroid"] = gdf.geometry.centroid
+                for idx, geom in enumerate(gdf["centroid"]):
+                    coords[f"Shape_{idx+1}"] = (geom.y, geom.x)
+                st.sidebar.success(f"✅ Loaded {len(coords)} centroid(s) from shapefile.")
+            else:
+                st.sidebar.error("❌ No .shp file found inside ZIP!")
+
+# -----------------------------
+# Year and Frequency settings
+# -----------------------------
 year_now = datetime.now().year
 year_range = st.sidebar.slider("Select Year Range", 2014, year_now, (2020, year_now))
 start_date = f"{year_range[0]}-01-01"
@@ -72,20 +126,20 @@ def get_weather_data(lat, lon, start_date, end_date, region):
         return pd.DataFrame()
 
 # --------------------------------------------
-# Data Retrieval
+# Load Data
 # --------------------------------------------
 data_dict = {}
-for region in regions:
-    lat, lon = region_coords[region]
+for region, (lat, lon) in coords.items():
     df = get_weather_data(lat, lon, start_date, end_date, region)
     if not df.empty:
         data_dict[region] = df
 
 if not data_dict:
+    st.warning("No data available. Please select or upload a region.")
     st.stop()
 
 # --------------------------------------------
-# Aggregation Function
+# Aggregation
 # --------------------------------------------
 def aggregate_data(df, freq):
     df = df.copy()
@@ -119,14 +173,12 @@ st.sidebar.download_button(
 )
 
 # --------------------------------------------
-# Plot Section
+# Plots — Temperature, Wind, Precipitation
 # --------------------------------------------
 st.subheader("📈 Weather Trends by Frequency")
 
-# Choose frequency for plotting
 agg_data_dict = {region: aggregate_data(df, plot_freq) for region, df in data_dict.items()}
 
-# Temperature, Wind, Precipitation Plots
 for region, df in agg_data_dict.items():
     with st.expander(f"📍 {region} ({plot_freq})", expanded=True):
         col1, col2, col3 = st.columns(3)
@@ -168,9 +220,9 @@ for region, df in agg_data_dict.items():
             st.plotly_chart(fig_prep, use_container_width=True)
 
 # --------------------------------------------
-# 🌀 Improved Multi-Rose Plot Section
+# 🌀 Wind Rose Plots (Multiple)
 # --------------------------------------------
-st.subheader("🌀 Wind Rose — Direction & Intensity")
+st.subheader("🌀 Wind Rose — Direction & Intensity (m/s)")
 
 def plot_wind_rose(df_dict):
     num_points = len(df_dict)
