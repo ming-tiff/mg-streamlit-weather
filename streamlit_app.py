@@ -25,21 +25,61 @@ for multiple regions in Malaysia using the **Open-Meteo API**.
 # --------------------------------------------
 st.sidebar.header("⚙️ Configuration")
 
-regions = {
-    "Terengganu": (5.3117, 103.1324),
-    "Selangor": (3.0738, 101.5183),
-    "Kuala Lumpur": (3.139, 101.6869),
-    "Kelantan": (6.1254, 102.2387),
-    "Perlis": (6.4447, 100.2048),
-    "Kedah": (6.1184, 100.3685),
-    "Perak": (4.5921, 101.0901),
-    "Johor": (1.4927, 103.7414),
-    "Sabah": (5.9804, 116.0735),
-    "Sarawak": (1.5533, 110.3593)
-}
+st.sidebar.markdown("---")
 
-selected_regions = st.sidebar.multiselect("Select Regions", list(regions.keys()), default=["Terengganu"])
+# -----------------------------
+# 🗺️ Multiple Coordinates or Shapefile
+# -----------------------------
+coords = []
 
+if region_option == "Custom (points or shapefile)":
+    st.sidebar.subheader("🗺️ Custom Input Options")
+
+    option = st.sidebar.radio("Choose Input Type", ["Manual Coordinates", "Upload Shapefile (.zip)"])
+
+    if option == "Manual Coordinates":
+        n_points = st.sidebar.number_input("Number of Points", min_value=1, max_value=10, value=2)
+        for i in range(n_points):
+            lat = st.sidebar.number_input(f"Latitude #{i+1}", key=f"lat_{i}", format="%.6f")
+            lon = st.sidebar.number_input(f"Longitude #{i+1}", key=f"lon_{i}", format="%.6f")
+            coords.append((lat, lon))
+
+    elif option == "Upload Shapefile (.zip)":
+        uploaded_file = st.sidebar.file_uploader("Upload Shapefile (.zip)", type=["zip"])
+        if uploaded_file is not None:
+            import tempfile, zipfile, os
+            with tempfile.TemporaryDirectory() as tmpdir:
+                zip_path = os.path.join(tmpdir, "uploaded.zip")
+                with open(zip_path, "wb") as f:
+                    f.write(uploaded_file.getvalue())
+
+                with zipfile.ZipFile(zip_path, "r") as zip_ref:
+                    zip_ref.extractall(tmpdir)
+
+                shp_files = [os.path.join(tmpdir, f) for f in os.listdir(tmpdir) if f.endswith(".shp")]
+                if shp_files:
+                    gdf = gpd.read_file(shp_files[0])
+                    gdf = gdf.to_crs(epsg=4326)
+                    gdf["centroid"] = gdf.geometry.centroid
+                    for geom in gdf["centroid"]:
+                        coords.append((geom.y, geom.x))
+                    st.sidebar.success(f"✅ Loaded {len(coords)} points from shapefile.")
+                else:
+                    st.sidebar.error("❌ No .shp file found inside ZIP!")
+else:
+    region_coords = {
+        "Selangor": (3.0738, 101.5183),
+        "Kuala Lumpur": (3.139, 101.6869),
+        "Kelantan": (6.1254, 102.2381),
+        "Terengganu": (5.3302, 103.1408),
+        "Perlis": (6.4444, 100.2048),
+        "Kedah": (6.1184, 100.3685),
+        "Perak": (4.5921, 101.0901),
+        "Johor": (1.4927, 103.7414),
+        "Sabah": (5.9788, 116.0753),
+        "Sarawak": (1.553, 110.359),
+    }
+    coords = [region_coords[region_option]]
 # Year range selector
 current_year = datetime.now().year
 years = st.sidebar.slider("Select Year Range", 2014, current_year, (2020, current_year))
