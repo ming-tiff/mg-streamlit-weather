@@ -120,7 +120,7 @@ if coords:
         hover_name="Region",
         zoom=4.5,
         height=300,
-        color_discrete_sequence=["#0072B2"]
+        color_discrete_sequence=["#FF0000"]
     )
     fig_map.update_layout(
         mapbox_style="open-street-map",
