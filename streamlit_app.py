@@ -22,10 +22,10 @@ This dashboard shows **daily, weekly, monthly, and yearly** summaries of
 for multiple regions in Malaysia using the **Open-Meteo ERA5 API**.
 
 You can select from:
-- Predefined Malaysian regions 🗾  
-- Upload a **CSV** with latitude/longitude 📄  
-- Upload a **Shapefile (.zip)** 🗺️  
-- Manually enter coordinates 📍
+- 🗾 Predefined Malaysian regions  
+- 📄 Upload **CSV** with latitude & longitude  
+- 🗺️ Upload **Shapefile (.zip)** polygons  
+- 📍 Manually enter coordinates
 """)
 
 # --------------------------------------------
@@ -46,9 +46,6 @@ region_coords = {
     "Sarawak": (1.5533, 110.3592),
 }
 
-# -----------------------------
-# Region selection options
-# -----------------------------
 region_option = st.sidebar.radio(
     "Select Input Type",
     ["Predefined Regions", "Manual Coordinates", "Upload Shapefile (.zip)", "Upload CSV (lat, lon only)"]
@@ -108,9 +105,32 @@ elif region_option == "Upload CSV (lat, lon only)":
         except Exception as e:
             st.sidebar.error(f"Error reading CSV: {e}")
 
-# -----------------------------
-# Year and Frequency settings
-# -----------------------------
+# --------------------------------------------
+# 🗺️ Mini Map Preview in Sidebar
+# --------------------------------------------
+if coords:
+    st.sidebar.markdown("### 🗺️ Location Preview")
+    df_map = pd.DataFrame(coords).T.reset_index()
+    df_map.columns = ["Region", "Latitude", "Longitude"]
+
+    fig_map = px.scatter_mapbox(
+        df_map,
+        lat="Latitude",
+        lon="Longitude",
+        hover_name="Region",
+        zoom=4.5,
+        height=300,
+        color_discrete_sequence=["#0072B2"]
+    )
+    fig_map.update_layout(
+        mapbox_style="open-street-map",
+        margin=dict(l=0, r=0, t=0, b=0),
+    )
+    st.sidebar.plotly_chart(fig_map, use_container_width=True)
+
+# --------------------------------------------
+# Year & Frequency
+# --------------------------------------------
 year_now = datetime.now().year
 year_range = st.sidebar.slider("Select Year Range", 2014, year_now, (2020, year_now))
 start_date = f"{year_range[0]}-01-01"
@@ -120,7 +140,7 @@ plot_freq = st.sidebar.selectbox("Plot Frequency", ["Daily", "Weekly", "Monthly"
 download_freq = st.sidebar.selectbox("Download Data Frequency", ["Daily", "Weekly", "Monthly", "Yearly"])
 
 # --------------------------------------------
-# Function — Fetch Weather Data
+# Fetch Weather Data
 # --------------------------------------------
 @st.cache_data(show_spinner=False)
 def get_weather_data(lat, lon, start_date, end_date, region):
@@ -143,9 +163,6 @@ def get_weather_data(lat, lon, start_date, end_date, region):
         st.error(f"❌ Failed to load data for {region}: {e}")
         return pd.DataFrame()
 
-# --------------------------------------------
-# Load Data
-# --------------------------------------------
 data_dict = {}
 for region, (lat, lon) in coords.items():
     df = get_weather_data(lat, lon, start_date, end_date, region)
@@ -225,7 +242,7 @@ for region, df in agg_data_dict.items():
             st.plotly_chart(fig_prep, use_container_width=True)
 
 # --------------------------------------------
-# 🌀 Wind Rose (Multiple)
+# 🌀 Wind Rose
 # --------------------------------------------
 st.subheader("🌀 Wind Rose — Direction & Intensity (m/s)")
 
