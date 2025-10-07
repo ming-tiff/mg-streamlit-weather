@@ -9,6 +9,8 @@ from math import ceil
 import io
 import geopandas as gpd
 import tempfile, zipfile, os
+from streamlit_folium import st_folium
+import folium
 
 # --------------------------------------------
 # Page Setup
@@ -105,28 +107,60 @@ elif region_option == "Upload CSV (lat, lon only)":
         except Exception as e:
             st.sidebar.error(f"Error reading CSV: {e}")
 
-# --------------------------------------------
-# 🗺️ Mini Map Preview in Sidebar
-# --------------------------------------------
-if coords:
-    st.sidebar.markdown("### 🗺️ Location Preview")
-    df_map = pd.DataFrame(coords).T.reset_index()
-    df_map.columns = ["Region", "Latitude", "Longitude"]
 
-    fig_map = px.scatter_mapbox(
-        df_map,
-        lat="Latitude",
-        lon="Longitude",
-        hover_name="Region",
-        zoom=4.5,
-        height=300,
-        color_discrete_sequence=["#FF0000"]
-    )
-    fig_map.update_layout(
-        mapbox_style="open-street-map",
-        margin=dict(l=0, r=0, t=0, b=0),
-    )
-    st.sidebar.plotly_chart(fig_map, use_container_width=True)
+# --------------------------------------------
+# 🗺️ Interactive Mini Map (Moveable + Clickable + Polygon Draw)
+# --------------------------------------------
+st.sidebar.markdown("### 🗺️ Location Selector Map")
+
+# Initial map setup
+if coords:
+    first_point = coords[0]
+    m = folium.Map(location=[first_point[0], first_point[1]], zoom_start=6, tiles="OpenStreetMap")
+else:
+    m = folium.Map(location=[4.2105, 101.9758], zoom_start=6, tiles="OpenStreetMap")  # Default Malaysia center
+
+# Add red markers for existing points
+for (lat, lon) in coords:
+    folium.CircleMarker(location=[lat, lon], radius=6, color="#FF0000", fill=True, fill_opacity=0.8).add_to(m)
+
+# Add drawing tools
+draw = folium.plugins.Draw(
+    draw_options={
+        "polyline": False,
+        "rectangle": True,
+        "polygon": True,
+        "circle": True,
+        "marker": True,
+        "circlemarker": False,
+    },
+    edit_options={"edit": True, "remove": True},
+)
+draw.add_to(m)
+
+# Display the map inside sidebar
+map_data = st_folium(m, width=300, height=350, key="sidebar_map")
+
+# Handle user interactions
+if map_data and map_data.get("last_active_drawing"):
+    last_shape = map_data["last_active_drawing"]
+    geom_type = last_shape["geometry"]["type"]
+    coords_drawn = last_shape["geometry"]["coordinates"]
+
+    if geom_type == "Point":
+        lon, lat = coords_drawn
+        st.sidebar.success(f"📍 Selected Point: ({lat:.4f}, {lon:.4f})")
+        coords = [(lat, lon)]
+
+    elif geom_type in ["Polygon", "MultiPolygon"]:
+        st.sidebar.success("🟩 Polygon area selected!")
+        # Extract centroid of polygon for weather lookup
+        polygon_coords = np.array(coords_drawn[0])
+        lat_centroid = polygon_coords[:, 1].mean()
+        lon_centroid = polygon_coords[:, 0].mean()
+        coords = [(lat_centroid, lon_centroid)]
+        st.sidebar.info(f"Polygon centroid used: ({lat_centroid:.4f}, {lon_centroid:.4f})")
+####---------------------------------------------
 
 # --------------------------------------------
 # Year & Frequency
