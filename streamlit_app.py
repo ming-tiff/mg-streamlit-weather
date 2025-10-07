@@ -21,7 +21,11 @@ This dashboard shows **daily, weekly, monthly, and yearly** summaries of
 **temperature (°C)**, **wind speed (m/s)**, **wind direction**, and **precipitation (mm)** 
 for multiple regions in Malaysia using the **Open-Meteo ERA5 API**.
 
-You can select from predefined Malaysian regions, manually enter coordinates, or upload a **Shapefile (.zip)** containing polygon(s).
+You can select from:
+- Predefined Malaysian regions 🗾  
+- Upload a **CSV** with latitude/longitude 📄  
+- Upload a **Shapefile (.zip)** 🗺️  
+- Manually enter coordinates 📍
 """)
 
 # --------------------------------------------
@@ -29,7 +33,6 @@ You can select from predefined Malaysian regions, manually enter coordinates, or
 # --------------------------------------------
 st.sidebar.header("⚙️ Configuration")
 
-# Built-in region coordinates
 region_coords = {
     "Selangor": (3.0738, 101.5183),
     "Kuala Lumpur": (3.1390, 101.6869),
@@ -48,7 +51,7 @@ region_coords = {
 # -----------------------------
 region_option = st.sidebar.radio(
     "Select Input Type",
-    ["Predefined Regions", "Manual Coordinates", "Upload Shapefile (.zip)"]
+    ["Predefined Regions", "Manual Coordinates", "Upload Shapefile (.zip)", "Upload CSV (lat, lon only)"]
 )
 
 coords = {}
@@ -89,6 +92,21 @@ elif region_option == "Upload Shapefile (.zip)":
                 st.sidebar.success(f"✅ Loaded {len(coords)} centroid(s) from shapefile.")
             else:
                 st.sidebar.error("❌ No .shp file found inside ZIP!")
+
+elif region_option == "Upload CSV (lat, lon only)":
+    st.sidebar.markdown("📄 **CSV must contain exactly two columns:** `latitude` and `longitude`.")
+    csv_file = st.sidebar.file_uploader("Upload CSV file", type=["csv"])
+    if csv_file is not None:
+        try:
+            df_csv = pd.read_csv(csv_file)
+            if set(df_csv.columns.str.lower()) >= {"latitude", "longitude"}:
+                for i, row in df_csv.iterrows():
+                    coords[f"CSV_Point_{i+1}"] = (row["latitude"], row["longitude"])
+                st.sidebar.success(f"✅ Loaded {len(coords)} point(s) from CSV file.")
+            else:
+                st.sidebar.error("❌ CSV must contain 'latitude' and 'longitude' columns only.")
+        except Exception as e:
+            st.sidebar.error(f"Error reading CSV: {e}")
 
 # -----------------------------
 # Year and Frequency settings
@@ -183,44 +201,31 @@ for region, df in agg_data_dict.items():
     with st.expander(f"📍 {region} ({plot_freq})", expanded=True):
         col1, col2, col3 = st.columns(3)
 
-        # --- Temperature ---
         with col1:
-            fig_temp = px.line(
-                df,
-                x="date",
+            fig_temp = px.line(df, x="date",
                 y=["temperature_2m_min", "temperature_2m_mean", "temperature_2m_max"],
                 labels={"value": "Temperature (°C)", "date": "Date"},
-                title=f"🌡️ Temperature ({region})"
-            )
+                title=f"🌡️ Temperature ({region})")
             fig_temp.update_layout(legend_title_text="Type", legend=dict(orientation="h", y=-0.3))
             st.plotly_chart(fig_temp, use_container_width=True)
 
-        # --- Wind ---
         with col2:
-            fig_wind = px.line(
-                df,
-                x="date",
+            fig_wind = px.line(df, x="date",
                 y=["wind_speed_10m_mean", "wind_speed_10m_max"],
                 labels={"value": "Wind Speed (m/s)", "date": "Date"},
-                title=f"💨 Wind Speed ({region})"
-            )
+                title=f"💨 Wind Speed ({region})")
             fig_wind.update_layout(legend_title_text="Type", legend=dict(orientation="h", y=-0.3))
             st.plotly_chart(fig_wind, use_container_width=True)
 
-        # --- Precipitation ---
         with col3:
-            fig_prep = px.line(
-                df,
-                x="date",
-                y="precipitation_sum",
+            fig_prep = px.line(df, x="date", y="precipitation_sum",
                 labels={"precipitation_sum": "Precipitation (mm)", "date": "Date"},
-                title=f"🌧️ Precipitation ({region})"
-            )
+                title=f"🌧️ Precipitation ({region})")
             fig_prep.update_traces(line_color="#1f77b4")
             st.plotly_chart(fig_prep, use_container_width=True)
 
 # --------------------------------------------
-# 🌀 Wind Rose Plots (Multiple)
+# 🌀 Wind Rose (Multiple)
 # --------------------------------------------
 st.subheader("🌀 Wind Rose — Direction & Intensity (m/s)")
 
@@ -243,17 +248,13 @@ def plot_wind_rose(df_dict):
     for region, df in df_dict.items():
         df = df.dropna(subset=["wind_direction_10m_dominant", "wind_speed_10m_mean"])
         rose = px.bar_polar(
-            df,
-            r="wind_speed_10m_mean",
-            theta="wind_direction_10m_dominant",
-            color="wind_speed_10m_mean",
-            color_continuous_scale="Turbo",
-            range_color=[df["wind_speed_10m_mean"].min(), df["wind_speed_10m_mean"].max()],
+            df, r="wind_speed_10m_mean", theta="wind_direction_10m_dominant",
+            color="wind_speed_10m_mean", color_continuous_scale="Turbo",
+            range_color=[df["wind_speed_10m_mean"].min(), df["wind_speed_10m_mean"].max()]
         )
         for trace in rose.data:
             trace.name = region
             fig.add_trace(trace, row=row, col=col)
-
         col += 1
         if col > cols:
             col = 1
@@ -268,7 +269,6 @@ def plot_wind_rose(df_dict):
         title_x=0.5,
         margin=dict(l=20, r=20, t=60, b=20)
     )
-
     st.plotly_chart(fig, use_container_width=True)
 
 plot_wind_rose(agg_data_dict)
