@@ -4,9 +4,11 @@ import plotly.express as px
 from datetime import datetime
 import requests
 import io
+from plotly.subplots import make_subplots
+import plotly.graph_objects as go
+import numpy as np
 import geopandas as gpd
 import tempfile, zipfile, os
-import numpy as np
 
 # --------------------------------------------
 # Page Setup
@@ -26,9 +28,9 @@ for multiple regions in Malaysia using the **Open-Meteo API**.
 st.sidebar.header("⚙️ Configuration")
 st.sidebar.markdown("---")
 
-# -----------------------------
-# 🗺️ Region Selection
-# -----------------------------
+# --------------------------------------------
+# Region Selection
+# --------------------------------------------
 region_option = st.sidebar.selectbox(
     "Select Region Type",
     ["Predefined Regions", "Custom (points or shapefile)"]
@@ -39,6 +41,7 @@ selected_regions = []
 
 if region_option == "Custom (points or shapefile)":
     st.sidebar.subheader("🗺️ Custom Input Options")
+
     option = st.sidebar.radio("Choose Input Type", ["Manual Coordinates", "Upload Shapefile (.zip)"])
 
     if option == "Manual Coordinates":
@@ -56,6 +59,7 @@ if region_option == "Custom (points or shapefile)":
                 zip_path = os.path.join(tmpdir, "uploaded.zip")
                 with open(zip_path, "wb") as f:
                     f.write(uploaded_file.getvalue())
+
                 with zipfile.ZipFile(zip_path, "r") as zip_ref:
                     zip_ref.extractall(tmpdir)
 
@@ -91,13 +95,14 @@ else:
     coords = [region_coords[r] for r in selected_regions]
 
 # --------------------------------------------
-# Date & Frequency Controls
+# Year range selector
 # --------------------------------------------
 current_year = datetime.now().year
 years = st.sidebar.slider("Select Year Range", 2014, current_year, (2020, current_year))
 start_date = f"{years[0]}-01-01"
 end_date = f"{years[1]}-12-31"
 
+# Download frequency
 download_freq = st.sidebar.selectbox("Download Data Frequency", ["Daily", "Weekly", "Monthly", "Yearly"])
 
 # --------------------------------------------
@@ -180,7 +185,7 @@ st.subheader("📊 Weather Trends")
 col1, col2, col3 = st.columns(3)
 
 # --------------------------------------------
-# Temperature plot
+# 🌡️ Temperature plot
 # --------------------------------------------
 with col1:
     st.markdown("🌡️ **Temperature (°C)**")
@@ -188,13 +193,17 @@ with col1:
         full_df,
         x="date",
         y=["temperature_2m_min", "temperature_2m_mean", "temperature_2m_max"],
-        color_discrete_sequence=["#1f77b4", "#ff0000", "#d62728"],
-        labels={"value": "Temperature (°C)", "date": "Date", "variable": "Type"}
+        labels={"value": "Temperature (°C)", "date": "Date"},
+    )
+    fig_temp.update_layout(
+        legend_title_text="Type",
+        legend=dict(orientation="h", y=-0.25, x=0),
+        margin=dict(l=0, r=0, t=40, b=0)
     )
     st.plotly_chart(fig_temp, use_container_width=True)
 
 # --------------------------------------------
-# Wind plot + Wind rose
+# 💨 Wind Speed + Multi Wind Rose
 # --------------------------------------------
 with col2:
     st.markdown("💨 **Wind Speed (m/s)**")
@@ -202,33 +211,77 @@ with col2:
         full_df,
         x="date",
         y=["wind_speed_10m_mean", "wind_speed_10m_max"],
-        color_discrete_sequence=["#17becf", "#ff7f0e"],
-        labels={"value": "Wind Speed (m/s)", "date": "Date", "variable": "Type"}
+        labels={"value": "Wind Speed (m/s)", "date": "Date"},
+    )
+    fig_wind.update_layout(
+        legend_title_text="Type",
+        legend=dict(orientation="h", y=-0.25, x=0)
     )
     st.plotly_chart(fig_wind, use_container_width=True)
 
-    # Wind Rose (Intensity color scale)
+    # 🌀 Multi Wind Rose Plot
     st.markdown("🌀 **Wind Rose — Direction & Intensity (m/s)**")
-    df_wind = full_df.dropna(subset=["wind_direction_10m_dominant", "wind_speed_10m_mean"])
-    fig_rose = px.bar_polar(
-        df_wind,
-        r="wind_speed_10m_mean",
-        theta="wind_direction_10m_dominant",
-        color="wind_speed_10m_mean",
-        color_continuous_scale=["yellow", "orange", "red"],
-        labels={"wind_speed_10m_mean": "Wind Speed (m/s)", "wind_direction_10m_dominant": "Direction (°)"}
-    )
-    fig_rose.update_layout(
-        polar=dict(
-            radialaxis=dict(showticklabels=True, ticks="outside"),
-            angularaxis=dict(direction="clockwise", rotation=90)
-        ),
-        coloraxis_colorbar=dict(title="Intensity (m/s)")
-    )
-    st.plotly_chart(fig_rose, use_container_width=True)
+
+    if len(selected_regions) > 1:
+        # Create subplot grid (max 3 per row)
+        rows = int(np.ceil(len(selected_regions) / 3))
+        cols = min(len(selected_regions), 3)
+
+        fig_multi = make_subplots(rows=rows, cols=cols,
+                                  specs=[[{'type': 'polar'}]*cols]*rows,
+                                  subplot_titles=selected_regions)
+
+        for idx, region in enumerate(selected_regions):
+            df_wind = full_df[full_df["region"] == region].dropna(subset=["wind_direction_10m_dominant", "wind_speed_10m_mean"])
+            if df_wind.empty:
+                continue
+            r, c = divmod(idx, cols)
+            fig_multi.add_trace(
+                go.Barpolar(
+                    r=df_wind["wind_speed_10m_mean"],
+                    theta=df_wind["wind_direction_10m_dominant"],
+                    marker=dict(color=df_wind["wind_speed_10m_mean"],
+                                colorscale=["yellow", "orange", "red"],
+                                cmin=0, cmax=df_wind["wind_speed_10m_mean"].max()),
+                    name=region
+                ),
+                row=r+1, col=c+1
+            )
+
+        fig_multi.update_layout(
+            showlegend=False,
+            coloraxis_colorbar=dict(title="Intensity (m/s)"),
+            polar=dict(
+                angularaxis=dict(direction="clockwise", rotation=90),
+                radialaxis=dict(showticklabels=True, ticks="outside")
+            ),
+            height=400 * rows,
+            margin=dict(t=100)
+        )
+        st.plotly_chart(fig_multi, use_container_width=True)
+
+    else:
+        # Single Wind Rose
+        df_wind = full_df.dropna(subset=["wind_direction_10m_dominant", "wind_speed_10m_mean"])
+        fig_rose = px.bar_polar(
+            df_wind,
+            r="wind_speed_10m_mean",
+            theta="wind_direction_10m_dominant",
+            color="wind_speed_10m_mean",
+            color_continuous_scale=["yellow", "orange", "red"],
+            labels={"wind_speed_10m_mean": "Wind Speed (m/s)", "wind_direction_10m_dominant": "Direction (°)"}
+        )
+        fig_rose.update_layout(
+            polar=dict(
+                radialaxis=dict(showticklabels=True, ticks="outside"),
+                angularaxis=dict(direction="clockwise", rotation=90)
+            ),
+            coloraxis_colorbar=dict(title="Intensity (m/s)")
+        )
+        st.plotly_chart(fig_rose, use_container_width=True)
 
 # --------------------------------------------
-# Precipitation plot
+# 🌧️ Precipitation plot
 # --------------------------------------------
 with col3:
     st.markdown("🌧️ **Precipitation (mm)**")
@@ -236,7 +289,7 @@ with col3:
         full_df,
         x="date",
         y="precipitation_sum",
-        color_discrete_sequence=["#1f77b4"],
         labels={"precipitation_sum": "Precipitation (mm)", "date": "Date"}
     )
+    fig_prep.update_traces(line_color="#1f77b4", line_width=1.5)
     st.plotly_chart(fig_prep, use_container_width=True)
