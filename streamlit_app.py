@@ -16,6 +16,7 @@ import tempfile, zipfile, os
 # --------------------------------------------
 st.set_page_config(page_title="🌤️ Malaysia Regional Weather Dashboard", layout="wide")
 st.title("🌤️ Malaysia Regional Weather Dashboard")
+st.sidebar.markdown("Data Source: [Open-Meteo API](https://open-meteo.com/)")
 
 st.markdown("""
 This dashboard shows **daily, weekly, monthly, and yearly** summaries of 
