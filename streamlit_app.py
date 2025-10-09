@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -9,14 +8,15 @@ import requests
 from math import ceil
 import io
 import geopandas as gpd
-import tempfile, zipfile, os
+import tempfile, zipfile, os, json
 
 # --------------------------------------------
 # Page Setup
 # --------------------------------------------
 st.set_page_config(page_title="🌤️ Malaysia Regional Weather Dashboard", layout="wide")
 st.title("🌤️ Malaysia Regional Weather Dashboard")
-st.sidebar.markdown("Data Source: [Open-Meteo API](https://open-meteo.com/)")
+st.sidebar.markdown("Data Source: [Open-Meteo API](https://open-meteo.com/)  \n"
+                    "Forecast Data: [Windy Point Forecast API](https://api.windy.com/point-forecast/docs)")
 
 st.markdown("""
 This dashboard shows **daily, weekly, monthly, and yearly** summaries of 
@@ -28,6 +28,13 @@ You can select from:
 - 📄 Upload **CSV** with latitude & longitude  
 - 🗺️ Upload **Shapefile (.zip)** polygons  
 - 📍 Manually enter coordinates
+
+---
+### 🌐 API Information:
+- **Open-Meteo ERA5 (Historical/Archive Data):** Provides reanalysis data from 2014–present (temperature, precipitation, wind speed & direction).  
+- **Windy Point Forecast (Forecast Data):** Provides forecast data (next few days) based on global models such as GFS or ICON.  
+  🔸 *Used here to show upcoming weather trends for each selected region.*
+---
 """)
 
 # --------------------------------------------
@@ -142,7 +149,7 @@ plot_freq = st.sidebar.selectbox("Plot Frequency", ["Daily", "Weekly", "Monthly"
 download_freq = st.sidebar.selectbox("Download Data Frequency", ["Daily", "Weekly", "Monthly", "Yearly"])
 
 # --------------------------------------------
-# Fetch Weather Data
+# Fetch Weather Data (Open-Meteo)
 # --------------------------------------------
 @st.cache_data(show_spinner=False)
 def get_weather_data(lat, lon, start_date, end_date, region):
@@ -291,3 +298,78 @@ def plot_wind_rose(df_dict):
     st.plotly_chart(fig, use_container_width=True)
 
 plot_wind_rose(agg_data_dict)
+
+# ======================================================
+# 🔮 NEW SECTION — Forecast Data (Windy API Integration)
+# ======================================================
+
+st.subheader("🔮 Forecast Data — Windy Point Forecast API")
+
+@st.cache_data(show_spinner=False)
+def get_windy_forecast(lat, lon, model="gfs", parameters=None):
+    if parameters is None:
+        parameters = ["temp", "wind", "precip"]
+    url = "https://api.windy.com/api/point-forecast/v2"
+    payload = {
+        "lat": lat,
+        "lon": lon,
+        "model": model,
+        "parameters": parameters,
+        "levels": ["surface"],
+        "key": st.secrets.get("WINDY_API_KEY", "DEMO_KEY")
+    }
+    headers = {"Content-Type": "application/json"}
+    try:
+        resp = requests.post(url, headers=headers, data=json.dumps(payload))
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        st.warning(f"⚠️ Windy forecast fetch failed: {e}")
+        return {}
+
+def parse_windy_to_df(windy_json, region):
+    if not windy_json:
+        return pd.DataFrame()
+    fc = windy_json.get("forecast", {})
+    if not fc:
+        return pd.DataFrame()
+    ts = fc.get("ts", [])
+    if not ts:
+        return pd.DataFrame()
+
+    records = []
+    for i, t in enumerate(ts):
+        rec = {"time": pd.to_datetime(t, unit="s"), "region": region}
+        for k, arr in fc.items():
+            if k != "ts" and isinstance(arr, list) and i < len(arr):
+                rec[k] = arr[i]
+        records.append(rec)
+    return pd.DataFrame(records)
+
+forecast_dict = {}
+for region, (lat, lon) in coords.items():
+    windy_json = get_windy_forecast(lat, lon)
+    df_fc = parse_windy_to_df(windy_json, region)
+    if not df_fc.empty:
+        forecast_dict[region] = df_fc
+
+if forecast_dict:
+    for region, df_fc in forecast_dict.items():
+        with st.expander(f"🌤️ {region} — 7-Day Forecast", expanded=False):
+            if "temp" in df_fc.columns:
+                fig_fc_temp = px.line(df_fc, x="time", y="temp",
+                                      labels={"temp": "Temperature (°C)", "time": "Date"},
+                                      title=f"Temperature Forecast ({region})")
+                st.plotly_chart(fig_fc_temp, use_container_width=True)
+            if "wind" in df_fc.columns:
+                fig_fc_wind = px.line(df_fc, x="time", y="wind",
+                                      labels={"wind": "Wind Speed (m/s)", "time": "Date"},
+                                      title=f"Wind Forecast ({region})")
+                st.plotly_chart(fig_fc_wind, use_container_width=True)
+            if "precip" in df_fc.columns:
+                fig_fc_precip = px.bar(df_fc, x="time", y="precip",
+                                       labels={"precip": "Precipitation (mm)", "time": "Date"},
+                                       title=f"Precipitation Forecast ({region})")
+                st.plotly_chart(fig_fc_precip, use_container_width=True)
+else:
+    st.info("No forecast data available (Windy API may require valid key or trial usage limit reached).")
